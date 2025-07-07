@@ -1,6 +1,7 @@
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, USER_AGENT};
 use serde_json::Value;
 use std::{env, fs};
+use std::path::Path;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,6 +14,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     headers.insert(USER_AGENT, HeaderValue::from_static("miden-fetcher"));
     headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", token))?);
 
+    let output_dir = Path::new("output");
+    fs::create_dir_all(output_dir)?; // create "output/" if it doesn't exist
+
     for repo in repos {
         let repo_name = repo.split('/').last().unwrap();
 
@@ -22,7 +26,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             repo
         );
         let issues: Value = client.get(&issues_url).headers(headers.clone()).send().await?.json().await?;
-        fs::write(format!("{}_issues.json", repo_name), serde_json::to_string_pretty(&issues)?)?;
+        fs::write(
+            output_dir.join(format!("{}_issues.json", repo_name)),
+            serde_json::to_string_pretty(&issues)?,
+        )?;        
         println!("Saved issues for {}", repo);
 
         // === Comments ===
@@ -39,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         fs::write(
-            format!("{}_comments.json", repo_name),
+            output_dir.join(format!("{}_comments.json", repo_name)),
             serde_json::to_string_pretty(&all_comments)?,
         )?;
         println!("Saved issue comments for {}", repo);
@@ -50,7 +57,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             repo
         );
         let prs: Value = client.get(&prs_url).headers(headers.clone()).send().await?.json().await?;
-        fs::write(format!("{}_prs.json", repo_name), serde_json::to_string_pretty(&prs)?)?;
+        fs::write(
+            output_dir.join(format!("{}_prs.json", repo_name)),
+            serde_json::to_string_pretty(&prs)?,
+        )?;
         println!("Saved PRs for {}", repo);
     }
 
