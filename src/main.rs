@@ -3,6 +3,10 @@ use serde_json::Value;
 use std::{env, fs};
 use std::path::Path;
 
+fn write_markdown_file(path: &std::path::Path, content: &str) -> std::io::Result<()> {
+    std::fs::write(path, content)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
@@ -16,6 +20,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let output_dir = Path::new("output");
     fs::create_dir_all(output_dir)?; // create "output/" if it doesn't exist
+    let output_json = Path::new("output/json");
+    let output_md = Path::new("output/md");
+    fs::create_dir_all(output_json)?;
+    fs::create_dir_all(output_md)?;
+
 
     for repo in repos {
         let repo_name = repo.split('/').last().unwrap();
@@ -26,10 +35,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             repo
         );
         let issues: Value = client.get(&issues_url).headers(headers.clone()).send().await?.json().await?;
+        //JSON
         fs::write(
-            output_dir.join(format!("{}_issues.json", repo_name)),
+            output_json.join(format!("{}_issues.json", repo_name)),
             serde_json::to_string_pretty(&issues)?,
-        )?;        
+        )?;
+        //MD
+        let mut issues_md = String::new();
+        for issue in issues.as_array().unwrap_or(&vec![]) {
+            let number = issue["number"].as_u64().unwrap_or(0);
+            let title = issue["title"].as_str().unwrap_or("");
+            let body = issue["body"].as_str().unwrap_or("");
+            issues_md.push_str(&format!("## Issue #{number}: {title}\n\n{body}\n\n---\n\n"));
+        }
+        write_markdown_file(
+            &output_md.join(format!("{}_issues.md", repo_name)),
+            &issues_md,
+        )?;
+
         println!("Saved issues for {}", repo);
 
         // === Comments ===
@@ -45,10 +68,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 all_comments.push((num, comments));
             }
         }
+        //JSON
         fs::write(
-            output_dir.join(format!("{}_comments.json", repo_name)),
+            output_json.join(format!("{}_comments.json", repo_name)),
             serde_json::to_string_pretty(&all_comments)?,
         )?;
+        //MD
+        let mut comments_md = String::new();
+        for (issue_num, comment_block) in &all_comments {
+            comments_md.push_str(&format!("### Comments on Issue #{issue_num}\n\n"));
+            for comment in comment_block.as_array().unwrap_or(&vec![]) {
+                let user = comment["user"]["login"].as_str().unwrap_or("unknown");
+                let body = comment["body"].as_str().unwrap_or("");
+                comments_md.push_str(&format!("**@{}**:\n{}\n\n", user, body));
+            }
+            comments_md.push_str("---\n\n");
+        }
+        write_markdown_file(
+            &output_md.join(format!("{}_comments.md", repo_name)),
+            &comments_md,
+        )?;
+        
         println!("Saved issue comments for {}", repo);
 
         // === Pull Requests ===
@@ -56,11 +96,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "https://api.github.com/repos/{}/pulls?state=all&per_page=100",
             repo
         );
+        //JSON
         let prs: Value = client.get(&prs_url).headers(headers.clone()).send().await?.json().await?;
         fs::write(
-            output_dir.join(format!("{}_prs.json", repo_name)),
+            output_json.join(format!("{}_prs.json", repo_name)),
             serde_json::to_string_pretty(&prs)?,
         )?;
+        //MD
+        let mut prs_md = String::new();
+        for pr in prs.as_array().unwrap_or(&vec![]) {
+            let number = pr["number"].as_u64().unwrap_or(0);
+            let title = pr["title"].as_str().unwrap_or("");
+            let body = pr["body"].as_str().unwrap_or("");
+            prs_md.push_str(&format!("## PR #{number}: {title}\n\n{body}\n\n---\n\n"));
+        }
+        write_markdown_file(
+            &output_md.join(format!("{}_prs.md", repo_name)),
+            &prs_md,
+        )?;
+        
         println!("Saved PRs for {}", repo);
     }
 
